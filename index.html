@@ -140,7 +140,60 @@
 	<script type='text/javascript'>//<![CDATA[
 
 		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":51086080,"index.wasm":19721321},"focusCanvas":true,"gdnativeLibs":[]};
+
+		// Safari WebGL context loss fix
+		// This must be set up before engine initialization
+		(function() {
+			var canvas = document.getElementById('canvas');
+			
+			// Handle webglcontextlost event - prevent default to allow restoration
+			canvas.addEventListener('webglcontextlost', function(event) {
+				event.preventDefault();
+				console.warn('WebGL context lost. Attempting to restore...');
+			}, false);
+			
+			// Handle webglcontextrestored event - reinitialize the engine
+			canvas.addEventListener('webglcontextrestored', function(event) {
+				console.log('WebGL context restored. Reinitializing engine...');
+				// The engine will need to be restarted
+				if (window.engine && window.engine.rtenv) {
+					window.engine.rtenv = null;
+				}
+				// Reload the page to fully reinitialize (safest approach for Godot)
+				location.reload();
+			}, false);
+			
+			// Patch getContext to add Safari-specific fixes
+			var originalGetContext = canvas.getContext.bind(canvas);
+			canvas.getContext = function(contextType, contextAttributes) {
+				var gl = originalGetContext(contextType, contextAttributes);
+				if (gl && (contextType === 'webgl' || contextType === 'webgl2' || contextType === 'experimental-webgl')) {
+					// Safari fix: getContextAttributes can return null when context is lost
+					var originalGetContextAttributes = gl.getContextAttributes.bind(gl);
+					gl.getContextAttributes = function() {
+						var attrs = originalGetContextAttributes();
+						// Return a safe default if null (context lost)
+						if (attrs === null) {
+							return {
+								alpha: false,
+								antialias: false,
+								depth: true,
+								stencil: false,
+								preserveDrawingBuffer: false,
+								powerPreference: 'default',
+								failIfMajorPerformanceCaveat: false,
+								desynchronized: false
+							};
+						}
+						return attrs;
+					};
+				}
+				return gl;
+			};
+		})();
+
 		var engine = new Engine(GODOT_CONFIG);
+		window.engine = engine; // Make engine globally accessible for context restoration
 
 		(function() {
 			const INDETERMINATE_STATUS_STEP_MS = 100;
